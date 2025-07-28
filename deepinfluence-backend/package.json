@@ -1,0 +1,23 @@
+{
+  "name": "deepinfluence-backend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start",
+    "prisma:gencode": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.7.1",
+    "formidable": "^3.5.4",
+    "next": "13.4.19",
+    "react": "18.2.0",
+    "react-dom": "18.2.0",
+    "swagger-ui-react": "^5.27.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.7.1"
+  }
+}

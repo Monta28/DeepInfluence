@@ -1,0 +1,286 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// 1. Définition de la source de données (PostgreSQL)
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL") // Votre URL de base de données doit être dans un fichier .env
+}
+
+// 2. Définition du générateur client Prisma
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ===============================================
+//                MODÈLES DE DONNÉES
+// ===============================================
+
+// Modèle pour tous les utilisateurs (simples, experts, admins)
+model User {
+  id        String    @id @default(uuid())
+  email     String    @unique
+  password  String
+  firstName String
+  lastName  String
+  role      UserRole  @default(USER)
+
+  profilePictureUrl String?
+  bio               String?
+
+  // Champs pour l'authentification sociale
+  googleId   String? @unique
+  facebookId String? @unique
+  
+  // Solde de l'utilisateur
+  coinsBalance Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // --- RELATIONS ---
+  // Relation 1-1 vers les détails de l'expert
+  expertDetails ExpertDetails?
+  
+  // Relations 1-N
+  clientAppointments   Appointment[]     @relation("ClientAppointments")
+  transactions         Transaction[]
+  sentMessages         Message[]
+  enrollments          FormationEnrollment[]
+  
+  // Relations pour le système de parrainage
+  referralsMade        Referral[]        @relation("ReferredBy") // Les parrainages que cet utilisateur a faits
+  referralReceived     Referral?         @relation("ReferredUser") // Le parrainage que cet utilisateur a reçu
+
+  // Relation M-N pour les conversations de chat
+  chats Chat[]
+}
+
+// Modèle contenant les informations spécifiques aux experts
+model ExpertDetails {
+  id                  String           @id @default(uuid())
+  userId              String           @unique
+  headline            String?
+  expertiseFields     String[]         // Champs de compétence, ex: ["Finance", "Bien-être"]
+  linkedinUrl         String?
+  instagramUrl        String?
+  idCardUrl           String?
+  bankInfo            Json?            // Pour stocker les infos bancaires de manière structurée
+  taxStatus           String?          // ex: "TVA 19%" ou "Retenue 15%"
+  validationStatus    ValidationStatus @default(PENDING)
+  availabilitySchedule Json?           // Stocke les créneaux de disponibilité, ex: {"monday": ["09:00-12:00"], ...}
+
+  // --- RELATIONS ---
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  services         Service[]
+  expertAppointments Appointment[]   @relation("ExpertAppointments")
+  formations       Formation[]
+  experioVideos    ExperioVideo[]
+}
+
+// Modèle pour les services tarifés par les experts
+model Service {
+  id           String      @id @default(uuid())
+  expertId     String
+  type         ServiceType
+  priceInCoins Int         @default(0)
+
+  // --- RELATIONS ---
+  expert ExpertDetails @relation(fields: [expertId], references: [id], onDelete: Cascade)
+
+  @@unique([expertId, type], name: "UniqueExpertService") // Un expert ne peut définir qu'un seul prix par type de service
+}
+
+// Modèle pour les rendez-vous entre un utilisateur et un expert
+model Appointment {
+  id           String            @id @default(uuid())
+  clientId     String
+  expertId     String
+  startTime    DateTime
+  endTime      DateTime
+  status       AppointmentStatus @default(PENDING)
+  priceInCoins Int               // Prix total calculé au moment de la réservation
+
+  // --- RELATIONS ---
+  client      User           @relation("ClientAppointments", fields: [clientId], references: [id])
+  expert      ExpertDetails  @relation("ExpertAppointments", fields: [expertId], references: [id])
+  transaction Transaction?   // Chaque RDV est lié à une transaction de paiement
+}
+
+// Modèle pour les formations créées par les experts
+model Formation {
+  id           String        @id @default(uuid())
+  expertId     String
+  title        String
+  description  String
+  type         FormationType
+  priceInCoins Int
+  
+  createdAt DateTime @default(now())
+
+  // --- RELATIONS ---
+  expert      ExpertDetails         @relation(fields: [expertId], references: [id])
+  sessions    FormationSession[]
+  enrollments FormationEnrollment[]
+}
+
+// Modèle pour les sessions spécifiques d'une formation (pour les formations multi-sessions)
+model FormationSession {
+  id          String   @id @default(uuid())
+  formationId String
+  title       String
+  startTime   DateTime
+  endTime     DateTime
+  location    String?  // Pour les formations présentielles ou hybrides
+
+  // --- RELATIONS ---
+  formation Formation @relation(fields: [formationId], references: [id], onDelete: Cascade)
+}
+
+// Modèle d'inscription d'un utilisateur à une formation
+model FormationEnrollment {
+  id          String      @id @default(uuid())
+  userId      String
+  formationId String
+  enrolledAt  DateTime    @default(now())
+
+  // --- RELATIONS ---
+  user        User        @relation(fields: [userId], references: [id])
+  formation   Formation   @relation(fields: [formationId], references: [id])
+  transaction Transaction? // L'inscription est liée à une transaction
+
+  @@unique([userId, formationId])
+}
+
+
+// Modèle pour les transactions financières
+model Transaction {
+  id           String          @id @default(uuid())
+  userId       String
+  type         TransactionType
+  amountCoins  Int
+  amountReal   Decimal?        // Montant en monnaie réelle (ex: pour l'achat de coins)
+  status       TransactionStatus @default(PENDING)
+  paymentGatewayId String?     // ID de transaction de Stripe/PayPal
+
+  createdAt DateTime @default(now())
+
+  // --- RELATIONS ---
+  user                       User                 @relation(fields: [userId], references: [id])
+  appointment                Appointment?         @relation(fields: [appointmentId], references: [id])
+  appointmentId              String?              @unique
+  formationEnrollment        FormationEnrollment? @relation(fields: [formationEnrollmentId], references: [id])
+  formationEnrollmentId      String?              @unique
+}
+
+
+// Modèle pour les conversations de chat
+model Chat {
+  id        String    @id @default(uuid())
+  createdAt DateTime  @default(now())
+
+  // --- RELATIONS ---
+  participants User[]
+  messages     Message[]
+}
+
+// Modèle pour un message dans un chat
+model Message {
+  id          String      @id @default(uuid())
+  chatId      String
+  senderId    String
+  contentType ContentType @default(TEXT)
+  content     String
+  createdAt   DateTime    @default(now())
+
+  // --- RELATIONS ---
+  chat   Chat @relation(fields: [chatId], references: [id], onDelete: Cascade)
+  sender User @relation(fields: [senderId], references: [id], onDelete: Cascade)
+
+  @@index([chatId])
+}
+
+// Modèle pour les vidéos courtes "Experio"
+model ExperioVideo {
+  id          String   @id @default(uuid())
+  expertId    String
+  videoUrl    String
+  title       String
+  description String?
+  viewCount   Int      @default(0)
+  createdAt   DateTime @default(now())
+
+  // --- RELATIONS ---
+  expert ExpertDetails @relation(fields: [expertId], references: [id], onDelete: Cascade)
+}
+
+
+// Modèle pour gérer le système de parrainage
+model Referral {
+  id               String   @id @default(uuid())
+  referrerId       String   // L'utilisateur qui a parrainé
+  refereeId        String   @unique // L'utilisateur qui a été parrainé
+  commissionRate   Decimal  // ex: 0.05 pour 5%
+  expiresAt        DateTime // Date de fin de la commission (6 mois après l'inscription)
+  referralCodeUsed String
+  createdAt        DateTime @default(now())
+
+  // --- RELATIONS ---
+  referrer User @relation("ReferredBy", fields: [referrerId], references: [id])
+  referee  User @relation("ReferredUser", fields: [refereeId], references: [id])
+}
+
+
+// ===============================================
+//                ÉNUMÉRATIONS
+// ===============================================
+
+enum UserRole {
+  USER
+  EXPERT
+  ADMIN
+}
+
+enum ValidationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum ServiceType {
+  TEXT_MESSAGE
+  VIDEO_MESSAGE
+  VIDEO_CALL_MINUTE
+}
+
+enum AppointmentStatus {
+  PENDING
+  CONFIRMED
+  CANCELLED
+  COMPLETED
+}
+
+enum FormationType {
+  LIVE
+  IN_PERSON
+  HYBRID
+}
+
+enum TransactionType {
+  PURCHASE   // Achat de coins par l'utilisateur
+  PAYMENT    // Paiement d'un service par l'utilisateur
+  REFUND     // Remboursement à l'utilisateur
+  WITHDRAWAL // Retrait d'argent par l'expert
+  COMMISSION // Gain de commission de parrainage
+}
+
+enum TransactionStatus {
+  PENDING
+  COMPLETED
+  FAILED
+}
+
+enum ContentType {
+  TEXT
+  VIDEO_URL
+}
