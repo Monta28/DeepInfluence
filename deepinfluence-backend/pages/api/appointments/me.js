@@ -7,13 +7,11 @@ export default async function handler(req, res) {
   const userId = getUserIdFromReq(req);
   if (!userId) return res.status(401).json({ message: 'Non authentifié' });
 
-  const expert = await prisma.expertDetails.findUnique({ where: { userId } });
-
   const items = await prisma.appointment.findMany({
     where: {
       OR: [
         { clientId: userId },
-        ...(expert ? [{ expertId: expert.id }] : [])
+        { expert: { userId: userId } }
       ]
     },
     include: { client: true, expert: { include: { user: true } }, transaction: true },
